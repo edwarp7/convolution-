@@ -5,7 +5,8 @@
 #include <string.h>
 #include "ku_input.h"
 
-#define LAYER_NUM (N - 3 + 1)
+#define FILTER_SIZE 3
+#define LAYER_NUM (N - FILTER_SIZE + 1)
 #define MAX_TASK LAYER_NUM*LAYER_NUM
 #define MAX_PROCESS MAX_TASK
 
@@ -18,7 +19,7 @@ typedef struct
 Job child_task[MAX_PROCESS];
 
 
-int filter[3][3] = {
+int filter[FILTER_SIZE][FILTER_SIZE] = {
     {-1, -1, -1},
     {-1, 8, -1},
     {-1, -1, -1}
@@ -37,9 +38,9 @@ int compute_value(int child_id, int task_id)
         {
                 int tx = task_id / LAYER_NUM;
                 int ty = task_id % LAYER_NUM;
-                for (int x = 0; x < 3; x++)
+                for (int x = 0; x < FILTER_SIZE; x++)
                 {
-                        for (int y = 0; y < 3; y++)
+                        for (int y = 0; y < FILTER_SIZE; y++)
                         {
                                 sum += input[tx + x][ty + y] * filter[x][y];
                         }
