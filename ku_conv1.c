@@ -5,178 +5,180 @@
 #include <string.h>
 #include "ku_input.h"
 
-int main(int argc, char *argv[]){
-	if(argc != 2){
-		printf("usage : %s <integet>\n", argv[0]);
-		return 1;
-	}
+#define LAYER_NUM (N - 3 + 1)
+#define MAX_TASK LAYER_NUM*LAYER_NUM
+#define MAX_PROCESS MAX_TASK
 
-	int value = atoi(argv[1]);
-	printf("child process num : %d\n", value);
+typedef struct
+{
+        int task_count;
+        int tasks[MAX_TASK];
+} Job;
 
-	int layer_num = N-3+1;
+Job child_task[MAX_PROCESS];
 
-	//printing last result matrix
-	int resultMatrix[layer_num*layer_num];
 
-	
-	//ready for pipe
-	int pipefd[2];
-	//this pipe is for return
-	int pipere[2];
-	
+int filter[3][3] = {
+    {-1, -1, -1},
+    {-1, 8, -1},
+    {-1, -1, -1}
+};
 
-	//ready for fork
-	pid_t pid[value];
-	int child_status;
+extern int input[N][N];
 
-	int filter[3][3] = {{-1,-1,-1},
-			{-1,8,-1},
-			{-1,-1,-1}};
+int all_pipefd[MAX_PROCESS][2];
+int all_pid[MAX_PROCESS];
 
-	//make value child
-	//for(int i=0;i<value;i++){
 
-		if(pipe(pipefd)==-1){
-                	perror("fd pipe");
-        	        exit(EXIT_FAILURE);
-	        }
-		if(pipe(pipere)==-1){
-                        perror("re pipe");
-                        exit(EXIT_FAILURE);
+int compute_value(int child_id, int task_id)
+{
+        int sum = 0;
+        if (task_id <= MAX_TASK)
+        {
+                int tx = task_id / LAYER_NUM;
+                int ty = task_id % LAYER_NUM;
+                for (int x = 0; x < 3; x++)
+                {
+                        for (int y = 0; y < 3; y++)
+                        {
+                                sum += input[tx + x][ty + y] * filter[x][y];
+                        }
                 }
+        }
+        else
+        {
+                return -99999;
+        }
 
-	//}
+        printf("child %2d: pid=%d task_id=%d layer_num=%d, comput_value=%d \n", child_id, getpid(), task_id, LAYER_NUM, sum);
+        return sum;
+}
 
-	for(int i=0;i<value;i++){
+int main(int argc, char *argv[])
+{
+        if (argc != 2)
+        {
+                printf("usage : %s <integet>\n", argv[0]);
+                return 1;
+        }
 
-		//ready for pipe
-	   //     int pipefd[2];
-       		 //this pipe is for return
-        //	int pipere[2];
-		
-	/*	if(pipe(pipefd)==-1){
+        int process_num = atoi(argv[1]);
+        int tasks = LAYER_NUM * LAYER_NUM;
+        if (process_num > tasks)
+        {
+                printf("Warning: Invalid input - process should be less than total tasks");
+                process_num = tasks;
+        }
+
+        int tasks_per_process = tasks / process_num;
+        int more_task_process_id = tasks % process_num;
+        int task_id = 0;
+
+        for (int i = 0; i < process_num; i++)
+        {
+                child_task[i].task_count = (i < more_task_process_id) ? tasks_per_process + 1 : tasks_per_process;
+                for (int j = 0; j < child_task[i].task_count; j++)
+                {
+                        child_task[i].tasks[j] = task_id++;
+                }
+        }
+
+        if (task_id != tasks)
+        {
+                printf("Something wrong: tasks assigned is %d, but total task is %d\n", task_id, tasks);
+                exit(1);
+        }
+
+        printf("child process num : %d\n", process_num);
+        printf("result size = %d x %d\n", LAYER_NUM, LAYER_NUM);
+        printf("task numbers : %d\n", tasks);
+        printf("child task table\n");
+        for (int i = 0; i < process_num; i++)
+        {
+                printf("child %d :", i);
+                for (int j = 0; j < child_task[i].task_count; j++)
+                {
+                        printf("%2d ", child_task[i].tasks[j]);
+                }
+                printf("\n");
+        }
+
+        printf("\n");
+
+        // ready for fork
+        pid_t all_pid[process_num];
+        int child_status;
+
+        for (int p = 0; p < process_num; p++)
+        {
+                int pipefd[2];
+                int pid;
+
+                if (pipe(pipefd) == -1)
+                {
                         perror("fd pipe");
                         exit(EXIT_FAILURE);
                 }
-                if(pipe(pipere)==-1){
-                        perror("re pipe");
-                        exit(EXIT_FAILURE);
-                }
-*/
 
-		if((pid[i] = fork()) == 0){
-			
-
-			if(i <= layer_num*layer_num){
-				//read pipe
+                if ((pid = fork()) == 0)
+                {
+                        printf("child %2d: pid=%d task_count=%d\n", p, getpid(), child_task[p].task_count);
+                        for (int t = 0; t < child_task[p].task_count; t++)
+                        {
+                                int result = compute_value(p, child_task[p].tasks[t]);
+                                write(pipefd[1], &result, sizeof(result));
+                        }
+                        close(pipefd[0]);
                         close(pipefd[1]);
-                        int buffer[9];
-                        ssize_t byteRead;
-
-                        byteRead = read(pipefd[0], &buffer, sizeof(buffer));
-                        if(byteRead<0){
-                                perror("pipe read error");
-                                return 1;
-                        }
-                        for(int i=0;i<9;i++){
-                                printf("childprocess %d read data %d\n", getpid(), buffer[i]);
-                        }
-
-
-
-                        printf("\n");
-
-
-                        int intvalue[9];
-                        for(int x=0;x<9;x++){
-                                intvalue[x] = buffer[x];
-                        }
-
-                        int sum=0;
-                        for(int x=0;x<3;x++){
-                                for(int y=0;y<3;y++){
-                                        sum += intvalue[(x*3)+y]*filter[x][y];
-                                }
-                        }
-//write pipere
-
-                        close(pipere[0]);
-                        write(pipere[1], &sum, 4 );
-
-                        close(pipefd[0]);
-                        close(pipere[1]);
                         exit(0);
+                }
+                else
+                {
+                        all_pid[p] = pid;
+                        all_pipefd[p][0] = pipefd[0];
+                        all_pipefd[p][1] = pipefd[1];
+                }
+        }
 
-			//end of when i == layer_num*layer_num
-			}else if(i>layer_num*layer_num){
-				//printf("no data to read or write in child");
-				exit(0);
-			}
-		}                           
-		else{
-			if(i <= layer_num*layer_num){
-				//int is 4byte we have to send 9bit so 3 is cool
-                        int intvalue[9];
-                        //change ku_input's input value to char[] (first argv is 16)
-                        //
-                        int x=i/layer_num;
-                        int y=i%layer_num;
-                        int num=0;
-                        for(int o=0;o<3;o++){
-                                for(int q=0;q<3;q++){
-                                        intvalue[num] = input[x][y];
-                                        num++;
-                                        y++;
-                                }
-                                x++;
-                                y = y-3;
-                        }
-                        
+        printf("**** child process folk done! ****\n");
 
+        // read results from pipes
+        int task_index = 0;
+        int resultMatrix[tasks];
 
-                        close(pipefd[0]);
-                        write(pipefd[1], &intvalue ,sizeof(intvalue));
-                        
-
-                        //read pipere
-                        int data;
-                        ssize_t byteRead;
-
-                        close(pipere[1]);
-
-                        byteRead = read(pipere[0], &data, 4);
-                        if(byteRead < 0){
+        for (int p = 0; p < process_num; p++)
+        {
+                int data;
+                ssize_t byteRead;
+                for (int t = 0; t < child_task[p].task_count; t++)
+                {
+                        byteRead = read(all_pipefd[p][0], &data, 4);
+                        if (byteRead < 0)
+                        {
                                 perror("pipere read error");
                                 return 1;
                         }
-                        printf("parent process read data %d\n", data);
-                        printf("\n");
+                        printf("parent read data[%2d]= %d\n", task_index, data);
+                        resultMatrix[task_index++] = data;
+                }
 
+                close(all_pipefd[p][1]);
+                close(all_pipefd[p][0]);
+        }
 
-                        resultMatrix[i] = data;
+        for (int i = 0; i < LAYER_NUM; i++)
+        {
+                for (int j = 0; j < LAYER_NUM; j++)
+                {
+                        printf("%3d ", resultMatrix[(LAYER_NUM * i) + j]);
+                }
+                printf("\n");
+        }
 
-                        close(pipefd[1]);
-                        close(pipere[0]);	
-			}else if(i > layer_num*layer_num){
-				//printf("no data to read or write in parent");
-			}
-			
-		}
-	}	
+        for (int j = 0; j < process_num; j++)
+        {
+                wait(NULL);
+        }
 
-	for(int j=0;j<value;j++){
-		//write pipe
-		wait(NULL);
-	}
-	
-	for(int i=0;i<layer_num;i++){
-		for(int j=0;j<layer_num;j++){
-			printf("%d ",resultMatrix[(layer_num*i)+j]);
-
-		}
-		printf("\n");
-	}
-
-	return 0;
+        return 0;
 }
